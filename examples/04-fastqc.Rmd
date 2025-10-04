@@ -1,0 +1,16 @@
+---
+title: "04-fastqc"
+output: html_document
+date: "2025-07-28"
+---
+
+
+```{bash}
+cd ../data/mussel
+/home/shared/FastQC-0.12.1/fastqc *
+```
+
+```{bash}
+/home/shared/seqtk-1.4/seqtk seq *fastq >> /dev/null
+```
+

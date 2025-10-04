@@ -1,0 +1,160 @@
+---
+title: "Bismark Genome Prep and Alignment"
+format: html
+editor: visual
+---
+
+## Set variables
+
+```{bash}
+# User-configurable variables
+
+# Paths to programs (leave empty to use those on PATH)
+bismark_dir="/home/shared/Bismark-0.24.0"
+bowtie2_dir="/home/shared/bowtie2-2.4.4-linux-x86_64/"
+
+# Number of threads to use
+threads=8
+
+# Genome source: set a local folder OR a local file OR an HTTP(S) URL to a .fa/.fna[.gz]
+genome_path_or_url="../data/Mchi"
+
+# Reads source: EITHER set a local directory containing pairs named *_R1.fastq[.gz] and *_R2.fastq[.gz]
+# OR provide URLs for ONE paired sample (both URLs must be set)
+reads_dir="../data/Raw_WGBS_Mch/"
+reads_r1_url=""
+reads_r2_url=""
+
+# Output directory
+output_dir="../output/bismark-prep-align"
+
+# Ensure base directories exist
+mkdir -p "${output_dir}"
+mkdir -p ../data
+```
+
+## Prepare genome folder
+
+```{bash}
+set -euo pipefail
+
+genome_folder=""
+
+if [[ "${genome_path_or_url}" =~ ^https?:// ]]; then
+  mkdir -p ../data/genome
+  cd ../data/genome
+  url="${genome_path_or_url}"
+  fname=$(basename "${url}")
+  echo "Downloading genome: ${url}"
+  curl -L -O "${url}"
+  if [[ "${fname}" == *.gz ]]; then
+    gunzip -f "${fname}"
+    fname="${fname%.gz}"
+  fi
+  genome_folder="$(pwd)"
+  cd - >/dev/null
+elif [[ -d "${genome_path_or_url}" ]]; then
+  genome_folder="${genome_path_or_url%/}"
+elif [[ -f "${genome_path_or_url}" ]]; then
+  mkdir -p ../data/genome
+  cp -f "${genome_path_or_url}" ../data/genome/
+  if [[ "${genome_path_or_url}" == *.gz ]]; then
+    gunzip -f ../data/genome/$(basename "${genome_path_or_url}")
+  fi
+  genome_folder="../data/genome"
+else
+  echo "Genome source not found: ${genome_path_or_url}" >&2
+  exit 1
+fi
+
+echo "Genome folder: ${genome_folder}"
+```
+
+## Build Bismark genome index
+
+```{bash}
+set -euo pipefail
+
+prep_cmd="bismark_genome_preparation"
+if [[ -n "${bismark_dir}" ]]; then
+  prep_cmd="${bismark_dir%/}/bismark_genome_preparation"
+fi
+
+aligner_opt=()
+if [[ -n "${bowtie2_dir}" ]]; then
+  aligner_opt=(--path_to_aligner "${bowtie2_dir%/}")
+fi
+
+"${prep_cmd}" \
+  --verbose \
+  --parallel "${threads}" \
+  "${aligner_opt[@]}" \
+  "${genome_folder}"
+```
+
+## Acquire reads (optional URLs) and align
+
+```{bash}
+set -euo pipefail
+
+effective_reads_dir="${reads_dir}"
+
+if [[ -n "${reads_r1_url}" && -n "${reads_r2_url}" ]]; then
+  mkdir -p "${reads_dir}"
+  cd "${reads_dir}"
+  echo "Downloading reads..."
+  curl -L -O "${reads_r1_url}"
+  curl -L -O "${reads_r2_url}"
+  effective_reads_dir="$(pwd)/"
+  cd - >/dev/null
+fi
+
+echo "Using reads directory: ${effective_reads_dir}"
+
+bismark_cmd="bismark"
+if [[ -n "${bismark_dir}" ]]; then
+  bismark_cmd="${bismark_dir%/}/bismark"
+fi
+
+bowtie_opt=()
+if [[ -n "${bowtie2_dir}" ]]; then
+  bowtie_opt=(--path_to_bowtie "${bowtie2_dir%/}")
+fi
+
+mkdir -p "${output_dir}"
+
+shopt -s nullglob
+
+has_pairs=0
+for r1 in "${effective_reads_dir}"*_R1.fastq "${effective_reads_dir}"*_R1.fastq.gz; do
+  [[ -e "$r1" ]] || continue
+  has_pairs=1
+  base=$(basename "${r1}")
+  sample="${base%_R1.fastq*}"
+  r2="${effective_reads_dir}${sample}_R2.fastq"
+  [[ -f "${r2}" ]] || r2="${r2}.gz"
+  if [[ ! -f "${r2}" ]]; then
+    echo "Skipping ${sample}: missing R2 file" >&2
+    continue
+  fi
+
+  echo "Aligning sample: ${sample}"
+  "${bismark_cmd}" \
+    "${bowtie_opt[@]}" \
+    -genome "${genome_folder}" \
+    -p "${threads}" \
+    --score_min L,0,-0.6 \
+    --non_directional \
+    -1 "${r1}" \
+    -2 "${r2}" \
+    -o "${output_dir}" \
+    --basename "${sample}"
+done
+
+if [[ "${has_pairs}" -eq 0 ]]; then
+  echo "No R1 FASTQ files found in ${effective_reads_dir}" >&2
+  exit 1
+fi
+```
+
+

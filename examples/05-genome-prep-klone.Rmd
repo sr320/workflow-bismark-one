@@ -1,0 +1,17 @@
+---
+title: "05-genome-prep-klone"
+output: html_document
+---
+
+```
+# Directories and programs
+bismark_dir=""
+bowtie2_dir="/home/shared/bowtie2-2.4.4-linux-x86_64/"
+genome_folder="../data/Mchi"
+
+${bismark_dir}/bismark_genome_preparation \
+--verbose \
+--parallel 6 \
+${genome_folder}
+```
+

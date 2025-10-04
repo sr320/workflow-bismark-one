@@ -1,0 +1,53 @@
+---
+title: "03-Mchi-align"
+output: html_document
+date: "2025-07-24"
+---
+
+align
+
+```{bash}
+
+# Directories and programs
+bismark_dir="/home/shared/Bismark-0.24.0"
+bowtie2_dir="/home/shared/bowtie2-2.4.4-linux-x86_64/"
+genome_folder="../data/Mchi/"
+reads_dir="../data/"
+
+ ${bismark_dir}/bismark \
+--path_to_bowtie ${bowtie2_dir} \
+-genome ${genome_folder} \
+-p 4 \
+-score_min L,0,-0.6 \
+-1 ${reads_dir}LCo_BSr1_R1.fastq \
+-2 ${reads_dir}LCo_BSr1_R2.fastq \
+-o ../output/03-Mchi-align/
+```
+
+
+
+
+
+
+
+
+
+DEduplicate
+
+
+```{bash}
+# Directories and programs
+bismark_dir="/home/shared/Bismark-0.24.0"
+
+cd ../output/03-Mchi-align
+
+find *.bam | \
+xargs basename -s .bam | \
+xargs -I{} ${bismark_dir}/deduplicate_bismark \
+--bam \
+--paired \
+{}.bam
+```
+
+
+
