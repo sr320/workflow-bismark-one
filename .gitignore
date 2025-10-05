@@ -6,3 +6,8 @@
 # Generated genome and reads data
 /data/genome/
 /data/reads/
+
+
+test-data/genome
+
+code/.tools

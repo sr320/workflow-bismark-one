@@ -29,7 +29,16 @@ reads_r2_url="https://owl.fish.washington.edu/nightingales/G_macrocephalus/30-10
 output_dir="../output/bismark-prep-align-laptop"
 
 # Ensure base directories exist
-mkdir -p "${output_dir}"
+ mkdir -p "${output_dir}"
+
+# Resolve absolute genome path to avoid cwd issues
+genome_abs="${genome_folder}"
+if [[ -d "${genome_folder}" ]]; then
+  genome_abs="$(cd "${genome_folder}" && pwd)"
+fi
+
+echo "Genome folder (absolute): ${genome_abs}"
+echo "Genome FASTA files present:" && ls -1 "${genome_abs}"/*.fa "${genome_abs}"/*.fasta 2>/dev/null || true
 mkdir -p ../data
 
 # Persist configuration for later chunks
@@ -89,6 +98,24 @@ fi
 
 echo "Genome folder: ${genome_folder}"
 echo "export genome_folder=\"${genome_folder}\"" >> .bismark_env.sh
+ 
+# Ensure genome FASTA is accessible as .fa/.fasta (Bismark discovery)
+# Decompress any .gz FASTA files
+if compgen -G "${genome_folder}"/*.fa.gz > /dev/null || compgen -G "${genome_folder}"/*.fasta.gz > /dev/null || compgen -G "${genome_folder}"/*.fna.gz > /dev/null; then
+  gunzip -f "${genome_folder}"/*.fa.gz 2>/dev/null || true
+  gunzip -f "${genome_folder}"/*.fasta.gz 2>/dev/null || true
+  gunzip -f "${genome_folder}"/*.fna.gz 2>/dev/null || true
+fi
+
+# If only .fna exists, symlink to .fa so Bismark can find it
+if ! compgen -G "${genome_folder}"/*.fa > /dev/null && ! compgen -G "${genome_folder}"/*.fasta > /dev/null; then
+  if compgen -G "${genome_folder}"/*.fna > /dev/null; then
+    for f in "${genome_folder}"/*.fna; do
+      base="$(basename "${f%.fna}")"
+      ln -sf "${f}" "${genome_folder}/${base}.fa"
+    done
+  fi
+fi
 ```
 
 ## Build Bismark genome index
@@ -164,70 +191,55 @@ echo "export effective_reads_dir=\"${effective_reads_dir}\"" >> .bismark_env.sh
 ## Align reads
 
 ```{bash}
-set -euo pipefail
+# Minimal Bismark alignment (single pair)
 
-if [[ -f ./.bismark_env.sh ]]; then
-  source ./.bismark_env.sh
-else
-  echo "Config file .bismark_env.sh not found. Run the 'Set variables' chunk first." >&2
-  exit 1
+# User: set this to your R1 FASTQ path
+reads="../data/reads"
+
+# Optional: override these if needed
+genome_dir="${genome_dir:-../data/genome}"
+threads="${threads:-8}"
+bismark_cmd="${bismark_cmd:-/opt/bismark/bismark}"
+
+# Derive R1/R2 from reads
+r1="${reads}"
+r2="${reads/_R1/_R2}"
+
+echo "Aligning single pair"
+if ! command -v "${bismark_cmd}" >/dev/null 2>&1; then
+  echo "bismark not found. Set bismark_cmd to full path, e.g., /usr/local/bin/bismark" >&2
+  exit 127
 fi
+"${bismark_cmd}" -genome "${genome_dir}" -p "${threads}" -1 "${r1}" -2 "${r2}"
+```
 
-# Fall back to reads_dir if effective_reads_dir was not set by the previous chunk
-effective_reads_dir="${effective_reads_dir:-${reads_dir}}"
+```
+# Set variables
+reads="/work/data/reads/1D11_R1_001.fastq.gz"     # R1 file path inside the container
+genome_dir="/work/data/genome"               # folder with prepared genome (inside container)
+threads=12
+bismark_cmd="/opt/bismark/bismark"
 
-bismark_cmd="bismark"
-if [[ -n "${bismark_dir}" ]]; then
-  bismark_cmd="${bismark_dir%/}/bismark"
-fi
+# Run single-pair alignment
+"$bismark_cmd" \
+-genome "$genome_dir" \
+-p "$threads" \
+-score_min L,0,-0.6 \
+--non_directional \
+-1 "$reads" \
+-2 "${reads/_R1/_R2}"
+```
 
-mkdir -p "${output_dir}"
 
-shopt -s nullglob
-
-has_pairs=0
-for r1 in \
-  "${effective_reads_dir}"*_R1*.fastq \
-  "${effective_reads_dir}"*_R1*.fastq.gz \
-  "${effective_reads_dir}"*_R1*.fq \
-  "${effective_reads_dir}"*_R1*.fq.gz; do
-  [[ -e "$r1" ]] || continue
-  has_pairs=1
-  base=$(basename "${r1}")
-  sample="${base%%_R1*}"
-  r2="${r1/_R1/_R2}"
-  if [[ ! -f "${r2}" ]]; then
-    echo "Skipping ${sample}: missing R2 file" >&2
-    continue
-  fi
-
-  echo "Aligning sample: ${sample}"
-  if [[ -n "${bowtie2_dir}" ]]; then
-    "${bismark_cmd}" \
-      --path_to_bowtie "${bowtie2_dir%/}" \
-      -genome "${genome_folder}" \
-      -p "${threads}" \
-      --score_min L,0,-0.6 \
-      --non_directional \
-      -1 "${r1}" \
-      -2 "${r2}" \
-      -o "${output_dir}" \
-      --basename "${sample}"
-  else
-    "${bismark_cmd}" \
-      -genome "${genome_folder}" \
-      -p "${threads}" \
-      --score_min L,0,-0.6 \
-      --non_directional \
-      -1 "${r1}" \
-      -2 "${r2}" \
-      -o "${output_dir}" \
-      --basename "${sample}"
-  fi
-done
-
-if [[ "${has_pairs}" -eq 0 ]]; then
-  echo "No R1 FASTQ files found in ${effective_reads_dir}" >&2
-  exit 1
-fi
+```
+find ${reads_dir}*_R1_001_val_1.fq.gz \
+| xargs basename -s _R1_001_val_1.fq.gz | xargs -I{} ${bismark_dir}/bismark \
+--path_to_bowtie ${bowtie2_dir} \
+-genome ${genome_folder} \
+-p 4 \
+-score_min L,0,-0.6 \
+--non_directional \
+-1 ${reads_dir}{}_R1_001_val_1.fq.gz \
+-2 ${reads_dir}{}_R2_001_val_2.fq.gz \
+-o Mcap_tg
 ```

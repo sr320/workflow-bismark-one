@@ -1,0 +1,47 @@
+---
+title: "Bismark Quick Commands"
+format: html
+---
+
+### Set inputs
+
+```{r}
+# User input: number of threads
+threads <- 8
+
+# Fixed demo paths (inside container)
+genome_dir <- "/work/test-data/genome"
+reads <- "/work/test-data/reads/1D11_R1_001.subset.fastq.gz"
+```
+
+### Genome index command (copy into running Docker shell)
+
+```{r, results='asis'}
+cat(
+  "```bash\n",
+  "# Bismark genome index\n",
+  sprintf("genome_dir=\"%s\"\n", genome_dir),
+  sprintf("threads=%d\n", threads),
+  "bismark_genome_preparation --parallel $threads \"$genome_dir\"\n",
+  "```\n",
+  sep = ""
+)
+```
+
+### Alignment command (copy into running Docker shell)
+
+```{r, results='asis'}
+cat(
+  "```bash\n",
+  "# Bismark alignment\n",
+  sprintf("genome_dir=\"%s\"\n", genome_dir),
+  sprintf("reads=\"%s\"\n", reads),
+  sprintf("threads=%d\n", threads),
+  "r2=\"${reads/_R1/_R2}\"\n",
+  "bismark -genome \"$genome_dir\" -p \"$threads\" -1 \"$reads\" -2 \"$r2\"\n",
+  "```\n",
+  sep = ""
+)
+```
+
+
