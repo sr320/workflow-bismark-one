@@ -2,3 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# Generated genome and reads data
+/data/genome/
+/data/reads/

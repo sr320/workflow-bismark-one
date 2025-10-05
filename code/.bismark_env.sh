@@ -1,0 +1,8 @@
+export bismark_dir=""
+export bowtie2_dir=""
+export threads="30"
+export genome_path_or_url="https://gannet.fish.washington.edu/v1_web/owlshell/bu-github/project-cod-temperature/data/GCF_031168955.1_ASM3116895v1_genomic.fna"
+export reads_dir="../data/reads/"
+export reads_r1_url="https://owl.fish.washington.edu/nightingales/G_macrocephalus/30-1067895835/1D11_R1_001.fastq.gz"
+export reads_r2_url="https://owl.fish.washington.edu/nightingales/G_macrocephalus/30-1067895835/1D11_R2_001.fastq.gz"
+export output_dir="../output/bismark-prep-align-laptop"

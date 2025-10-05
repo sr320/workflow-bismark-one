@@ -1,0 +1,38 @@
+# Minimal image with Bismark, HISAT2, and samtools
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC \
+    bismark_version=0.24.2
+
+# System deps and tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    curl \
+    perl \
+    unzip \
+    tar \
+    gzip \
+    bzip2 \
+    xz-utils \
+    procps \
+    locales \
+    python3 \
+    samtools \
+    hisat2 \
+    bowtie2 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install Bismark (Perl scripts)
+RUN mkdir -p /opt && cd /opt \
+ && wget -q https://github.com/FelixKrueger/Bismark/archive/refs/tags/v${bismark_version}.zip \
+ && unzip -q v${bismark_version}.zip \
+ && rm v${bismark_version}.zip \
+ && mv Bismark-${bismark_version} bismark
+
+ENV PATH="/opt/bismark:${PATH}"
+
+CMD ["bash"]
+
+

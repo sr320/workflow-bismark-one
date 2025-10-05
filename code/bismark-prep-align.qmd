@@ -10,33 +10,53 @@ editor: visual
 # User-configurable variables
 
 # Paths to programs (leave empty to use those on PATH)
-bismark_dir="/home/shared/Bismark-0.24.0"
-bowtie2_dir="/home/shared/bowtie2-2.4.4-linux-x86_64/"
+bismark_dir=""
+bowtie2_dir=""
 
 # Number of threads to use
-threads=8
+threads=10
 
 # Genome source: set a local folder OR a local file OR an HTTP(S) URL to a .fa/.fna[.gz]
-genome_path_or_url="../data/Mchi"
+genome_path_or_url="https://gannet.fish.washington.edu/v1_web/owlshell/bu-github/project-cod-temperature/data/GCF_031168955.1_ASM3116895v1_genomic.fna"
 
 # Reads source: EITHER set a local directory containing pairs named *_R1.fastq[.gz] and *_R2.fastq[.gz]
 # OR provide URLs for ONE paired sample (both URLs must be set)
-reads_dir="../data/Raw_WGBS_Mch/"
-reads_r1_url=""
-reads_r2_url=""
+reads_dir="../data/reads/"
+reads_r1_url="https://owl.fish.washington.edu/nightingales/G_macrocephalus/30-1067895835/1D11_R1_001.fastq.gz"
+reads_r2_url="https://owl.fish.washington.edu/nightingales/G_macrocephalus/30-1067895835/1D11_R2_001.fastq.gz"
 
 # Output directory
-output_dir="../output/bismark-prep-align"
+output_dir="../output/bismark-prep-align-laptop"
 
 # Ensure base directories exist
 mkdir -p "${output_dir}"
 mkdir -p ../data
+
+# Persist configuration for later chunks
+cat > .bismark_env.sh <<EOF
+export bismark_dir="${bismark_dir}"
+export bowtie2_dir="${bowtie2_dir}"
+export threads="${threads}"
+export genome_path_or_url="${genome_path_or_url}"
+export reads_dir="${reads_dir}"
+export reads_r1_url="${reads_r1_url}"
+export reads_r2_url="${reads_r2_url}"
+export output_dir="${output_dir}"
+EOF
+echo "Wrote config to .bismark_env.sh"
 ```
 
 ## Prepare genome folder
 
 ```{bash}
 set -euo pipefail
+
+if [[ -f ./.bismark_env.sh ]]; then
+  source ./.bismark_env.sh
+else
+  echo "Config file .bismark_env.sh not found. Run the 'Set variables' chunk first." >&2
+  exit 1
+fi
 
 genome_folder=""
 
@@ -68,6 +88,7 @@ else
 fi
 
 echo "Genome folder: ${genome_folder}"
+echo "export genome_folder=\"${genome_folder}\"" >> .bismark_env.sh
 ```
 
 ## Build Bismark genome index
@@ -75,50 +96,89 @@ echo "Genome folder: ${genome_folder}"
 ```{bash}
 set -euo pipefail
 
+if [[ -f ./.bismark_env.sh ]]; then
+  source ./.bismark_env.sh
+else
+  echo "Config file .bismark_env.sh not found. Run the 'Set variables' chunk first." >&2
+  exit 1
+fi
+
 prep_cmd="bismark_genome_preparation"
 if [[ -n "${bismark_dir}" ]]; then
   prep_cmd="${bismark_dir%/}/bismark_genome_preparation"
 fi
 
-aligner_opt=()
 if [[ -n "${bowtie2_dir}" ]]; then
-  aligner_opt=(--path_to_aligner "${bowtie2_dir%/}")
+  "${prep_cmd}" \
+    --verbose \
+    --parallel "${threads}" \
+    --path_to_aligner "${bowtie2_dir%/}" \
+    "${genome_folder}"
+else
+  "${prep_cmd}" \
+    --verbose \
+    --parallel "${threads}" \
+    "${genome_folder}"
 fi
-
-"${prep_cmd}" \
-  --verbose \
-  --parallel "${threads}" \
-  "${aligner_opt[@]}" \
-  "${genome_folder}"
 ```
 
-## Acquire reads (optional URLs) and align
+## Acquire reads (optional URLs)
 
 ```{bash}
 set -euo pipefail
+
+if [[ -f ./.bismark_env.sh ]]; then
+  source ./.bismark_env.sh
+else
+  echo "Config file .bismark_env.sh not found. Run the 'Set variables' chunk first." >&2
+  exit 1
+fi
 
 effective_reads_dir="${reads_dir}"
 
 if [[ -n "${reads_r1_url}" && -n "${reads_r2_url}" ]]; then
   mkdir -p "${reads_dir}"
   cd "${reads_dir}"
-  echo "Downloading reads..."
-  curl -L -O "${reads_r1_url}"
-  curl -L -O "${reads_r2_url}"
+  r1_name=$(basename "${reads_r1_url}")
+  r2_name=$(basename "${reads_r2_url}")
+  if [[ -f "${r1_name}" ]]; then
+    echo "R1 already exists, skipping download: ${r1_name}"
+  else
+    echo "Downloading R1: ${reads_r1_url}"
+    curl -L -O "${reads_r1_url}"
+  fi
+  if [[ -f "${r2_name}" ]]; then
+    echo "R2 already exists, skipping download: ${r2_name}"
+  else
+    echo "Downloading R2: ${reads_r2_url}"
+    curl -L -O "${reads_r2_url}"
+  fi
   effective_reads_dir="$(pwd)/"
   cd - >/dev/null
 fi
 
 echo "Using reads directory: ${effective_reads_dir}"
+echo "export effective_reads_dir=\"${effective_reads_dir}\"" >> .bismark_env.sh
+```
+
+## Align reads
+
+```{bash}
+set -euo pipefail
+
+if [[ -f ./.bismark_env.sh ]]; then
+  source ./.bismark_env.sh
+else
+  echo "Config file .bismark_env.sh not found. Run the 'Set variables' chunk first." >&2
+  exit 1
+fi
+
+# Fall back to reads_dir if effective_reads_dir was not set by the previous chunk
+effective_reads_dir="${effective_reads_dir:-${reads_dir}}"
 
 bismark_cmd="bismark"
 if [[ -n "${bismark_dir}" ]]; then
   bismark_cmd="${bismark_dir%/}/bismark"
-fi
-
-bowtie_opt=()
-if [[ -n "${bowtie2_dir}" ]]; then
-  bowtie_opt=(--path_to_bowtie "${bowtie2_dir%/}")
 fi
 
 mkdir -p "${output_dir}"
@@ -126,29 +186,44 @@ mkdir -p "${output_dir}"
 shopt -s nullglob
 
 has_pairs=0
-for r1 in "${effective_reads_dir}"*_R1.fastq "${effective_reads_dir}"*_R1.fastq.gz; do
+for r1 in \
+  "${effective_reads_dir}"*_R1*.fastq \
+  "${effective_reads_dir}"*_R1*.fastq.gz \
+  "${effective_reads_dir}"*_R1*.fq \
+  "${effective_reads_dir}"*_R1*.fq.gz; do
   [[ -e "$r1" ]] || continue
   has_pairs=1
   base=$(basename "${r1}")
-  sample="${base%_R1.fastq*}"
-  r2="${effective_reads_dir}${sample}_R2.fastq"
-  [[ -f "${r2}" ]] || r2="${r2}.gz"
+  sample="${base%%_R1*}"
+  r2="${r1/_R1/_R2}"
   if [[ ! -f "${r2}" ]]; then
     echo "Skipping ${sample}: missing R2 file" >&2
     continue
   fi
 
   echo "Aligning sample: ${sample}"
-  "${bismark_cmd}" \
-    "${bowtie_opt[@]}" \
-    -genome "${genome_folder}" \
-    -p "${threads}" \
-    --score_min L,0,-0.6 \
-    --non_directional \
-    -1 "${r1}" \
-    -2 "${r2}" \
-    -o "${output_dir}" \
-    --basename "${sample}"
+  if [[ -n "${bowtie2_dir}" ]]; then
+    "${bismark_cmd}" \
+      --path_to_bowtie "${bowtie2_dir%/}" \
+      -genome "${genome_folder}" \
+      -p "${threads}" \
+      --score_min L,0,-0.6 \
+      --non_directional \
+      -1 "${r1}" \
+      -2 "${r2}" \
+      -o "${output_dir}" \
+      --basename "${sample}"
+  else
+    "${bismark_cmd}" \
+      -genome "${genome_folder}" \
+      -p "${threads}" \
+      --score_min L,0,-0.6 \
+      --non_directional \
+      -1 "${r1}" \
+      -2 "${r2}" \
+      -o "${output_dir}" \
+      --basename "${sample}"
+  fi
 done
 
 if [[ "${has_pairs}" -eq 0 ]]; then
@@ -156,5 +231,3 @@ if [[ "${has_pairs}" -eq 0 ]]; then
   exit 1
 fi
 ```
-
-
